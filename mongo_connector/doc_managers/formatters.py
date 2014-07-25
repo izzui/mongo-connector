@@ -56,6 +56,8 @@ class DefaultDocumentFormatter(DocumentFormatter):
     def transform_value(self, value):
         # This is largely taken from bson.json_util.default, though not the same
         # so we don't modify the structure of the document
+        if value is None:
+            return None
         if isinstance(value, dict):
             return self.format_document(value)
         elif isinstance(value, list):

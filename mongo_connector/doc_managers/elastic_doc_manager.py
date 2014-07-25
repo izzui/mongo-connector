@@ -52,7 +52,6 @@ class DocManager(DocManagerBase):
                  **kwargs):
         self.elastic = Elasticsearch(hosts=[url])
         self.auto_commit_interval = auto_commit_interval
-        self.doc_type = 'string'  # default type is string, change if needed
         self.meta_index_name = meta_index_name
         self.meta_type = meta_type
         self.unique_key = unique_key
@@ -60,6 +59,10 @@ class DocManager(DocManagerBase):
         if self.auto_commit_interval not in [None, 0]:
             self.run_auto_commit()
         self._formatter = DefaultDocumentFormatter()
+
+    def get_index_and_type(self, ns):
+        index, doc_type = ns.split('.')
+        return [ index.lower(), doc_type ]
 
     def stop(self):
         """Stop the auto-commit thread."""
@@ -76,7 +79,8 @@ class DocManager(DocManagerBase):
         """Apply updates given in update_spec to the document whose id
         matches that of doc.
         """
-        document = self.elastic.get(index=doc['ns'],
+        index, doc_type = self.get_index_and_type(doc["ns"])
+        document = self.elastic.get(index=index, doc_type=doc_type,
                                     id=str(doc['_id']))
         updated = self.apply_update(document['_source'], update_spec)
         # _id is immutable in MongoDB, so won't have changed in update
@@ -93,8 +97,7 @@ class DocManager(DocManagerBase):
     @wrap_exceptions
     def upsert(self, doc):
         """Insert a document into Elasticsearch."""
-        doc_type = self.doc_type
-        index = doc.pop('ns')
+        index, doc_type = self.get_index_and_type(doc.pop("ns"))
         # No need to duplicate '_id' in source document
         doc_id = str(doc.pop("_id"))
         metadata = {
@@ -119,12 +122,12 @@ class DocManager(DocManagerBase):
             doc = None
             for doc in docs:
                 # Remove metadata and redundant _id
-                index = doc.pop("ns")
+                index, doc_type = self.get_index_and_type(doc.pop("ns"))
                 doc_id = str(doc.pop("_id"))
                 timestamp = doc.pop("_ts")
                 document_action = {
                     "_index": index,
-                    "_type": self.doc_type,
+                    "_type": doc_type,
                     "_id": doc_id,
                     "_source": self._formatter.format_document(doc)
                 }
@@ -167,7 +170,8 @@ class DocManager(DocManagerBase):
     @wrap_exceptions
     def remove(self, doc):
         """Remove a document from Elasticsearch."""
-        self.elastic.delete(index=doc['ns'], doc_type=self.doc_type,
+        index, doc_type = self.get_index_and_type(doc['ns'])
+        self.elastic.delete(index=index, doc_type=doc_type,
                             id=str(doc["_id"]),
                             refresh=(self.auto_commit_interval == 0))
         self.elastic.delete(index=self.meta_index_name, doc_type=self.meta_type,
